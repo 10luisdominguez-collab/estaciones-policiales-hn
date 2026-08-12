@@ -6,11 +6,16 @@ from streamlit_js_eval import get_geolocation
 # Configuración de página
 st.set_page_config(page_title="Policía Cerca HN", page_icon="🚨", layout="centered")
 
-# Estilo CSS para que el cursor cambie a mano interactiva sobre la tabla
+# --------------------------------------------------------------------------
+# Inyección de CSS para forzar la "manito" (cursor: pointer) en la tabla
+# --------------------------------------------------------------------------
 st.markdown("""
     <style>
-    [data-testid="stDataFrame"] canvas {
-        cursor: pointer;
+    /* Aplica el cursor pointer a todo el área de la tabla e interactivos */
+    [data-testid="stDataFrame"], 
+    [data-testid="stDataFrame"] canvas,
+    [data-testid="stDataFrame"] iframe {
+        cursor: pointer !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -118,15 +123,15 @@ if st.button("🔎 Buscar Dependencias Policiales Cercanas") or "top3_data" in s
         hide_index=True
     )
 
-    # 5. Determinar la fila activa cuando el usuario hace clic directamente en el Nombre
+    # 5. Determinar la fila activa cuando el usuario hace clic directamente en la celda
     sel_id = 0
     if event and event.selection and event.selection.cells:
         celda = event.selection.cells[0]
-        # Verificar que el clic fue en la columna "Dependencia Policial" (índice 0)
+        # Verificar que el clic haya sido en la columna del Nombre ("Dependencia Policial")
         if celda[1] == 0 or celda[1] == "Dependencia Policial":
             sel_id = celda[0]
 
-    # 6. Renderizar el Mapa según la selección
+    # 6. Renderizar el Mapa según la opción seleccionada
     estacion_elegida = df_top3.iloc[sel_id]
     dest_lat, dest_lon = estacion_elegida["lat"], estacion_elegida["lon"]
     
