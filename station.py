@@ -6,23 +6,30 @@ from streamlit_js_eval import get_geolocation
 # Configuración de página
 st.set_page_config(page_title="Policía Cerca HN", page_icon="🚨", layout="centered")
 
-# --------------------------------------------------------------------------
-# Inyección de CSS para forzar la "manito" (cursor: pointer) en la tabla
-# --------------------------------------------------------------------------
+# Estilos CSS avanzados (UI moderna + cursor pointer)
 st.markdown("""
     <style>
-    /* Aplica el cursor pointer a todo el área de la tabla e interactivos */
+    /* Transición y manito para tablas */
     [data-testid="stDataFrame"], 
     [data-testid="stDataFrame"] canvas,
     [data-testid="stDataFrame"] iframe {
         cursor: pointer !important;
     }
+    
+    /* Contenedor de mapa con sombra elegante */
+    .map-container {
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        border: 1px solid #e0e0e0;
+    }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🚨 Localizador de Policía y Postas HN")
+st.title("🚨 Localizador Policial Honduras")
+st.caption("Encuentra la posta o estación más cercana en tiempo real.")
 
-# 1. Cargar API Key desde los Secretos de Streamlit
+# 1. Cargar API Key
 if "GOOGLE_MAPS_API_KEY" in st.secrets:
     API_KEY = st.secrets["GOOGLE_MAPS_API_KEY"]
     try:
@@ -34,14 +41,14 @@ else:
     st.error("⚠️ No se encontró la clave GOOGLE_MAPS_API_KEY en los Secrets de Streamlit.")
     st.stop()
 
-# 2. Captura de GPS del dispositivo
+# 2. Captura de GPS del dispositivo que abre la app
 loc = get_geolocation()
 lat_user, lon_user = None, None
 
 if loc and 'coords' in loc:
     lat_user = loc['coords']['latitude']
     lon_user = loc['coords']['longitude']
-    st.success(f"📍 GPS detectado: Lat {round(lat_user, 4)}, Lon {round(lon_user, 4)}")
+    st.success(f"📍 **Ubicación GPS detectada:** ({round(lat_user, 4)}, {round(lon_user, 4)})")
 
 # Coordenadas manuales de respaldo
 with st.expander("🌐 Ver / Ajustar Coordenadas Manuales"):
@@ -54,10 +61,10 @@ with st.expander("🌐 Ver / Ajustar Coordenadas Manuales"):
 origen = (lat_input, lon_input)
 
 # 3. Consultar la API y guardar en session_state
-if st.button("🔎 Buscar Dependencias Policiales Cercanas") or "top3_data" in st.session_state:
+if st.button("🔎 Buscar Dependencias Cercanas", type="primary", use_container_width=True) or "top3_data" in st.session_state:
     
     if "top3_data" not in st.session_state or st.session_state.get("last_origen") != origen:
-        with st.spinner("Consultando Google Maps..."):
+        with st.spinner("Buscando estaciones y calculando tiempos de traslado..."):
             try:
                 places_result = gmaps.places_nearby(
                     location=origen,
@@ -83,19 +90,26 @@ if st.button("🔎 Buscar Dependencias Policiales Cercanas") or "top3_data" in s
                         "lon": plon
                     })
 
-                matrix = gmaps.distance_matrix(origen, destinos, mode="driving")
+                # Matriz para Auto/Moto (driving)
+                matrix_car = gmaps.distance_matrix(origen, destinos, mode="driving")
+                # Matriz para A pie (walking)
+                matrix_walk = gmaps.distance_matrix(origen, destinos, mode="walking")
                 
                 resultados_finales = []
                 for idx, lugar in enumerate(lista_lugares):
-                    element = matrix['rows'][0]['elements'][idx]
-                    dist_km = element['distance']['value'] / 1000.0 if element['status'] == 'OK' else float('inf')
-                    tiempo = element['duration']['text'] if element['status'] == 'OK' else "N/D"
+                    elem_car = matrix_car['rows'][0]['elements'][idx]
+                    elem_walk = matrix_walk['rows'][0]['elements'][idx]
+                    
+                    dist_km = elem_car['distance']['value'] / 1000.0 if elem_car['status'] == 'OK' else float('inf')
+                    t_carro_moto = elem_car['duration']['text'] if elem_car['status'] == 'OK' else "N/D"
+                    t_pie = elem_walk['duration']['text'] if elem_walk['status'] == 'OK' else "N/D"
                     
                     resultados_finales.append({
                         "Dependencia Policial": lugar["Nombre"],
                         "Dirección": lugar["Dirección"],
                         "Distancia": f"{round(dist_km, 2)} km",
-                        "Tiempo Estimado": tiempo,
+                        "🚗 / 🏍️ Auto/Moto": t_carro_moto,
+                        "🚶 A pie": t_pie,
                         "dist_num": dist_km,
                         "lat": lugar["lat"],
                         "lon": lugar["lon"]
@@ -111,31 +125,43 @@ if st.button("🔎 Buscar Dependencias Policiales Cercanas") or "top3_data" in s
 
     df_top3 = st.session_state["top3_data"]
 
-    st.subheader("Top 3 Puntos Policiales Más Cercanos")
-    st.info("👇 Haz clic directamente sobre el **Nombre de la Dependencia Policial** para actualizar el mapa.")
+    # --- MÉTRICAS DESTACADAS ---
+    top_opcion = df_top3.iloc[0]
+    st.markdown("### 🏆 Punto Policial Más Cercano")
+    
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Distancia", top_opcion["Distancia"])
+    m2.metric("🚗 / 🏍️ Auto / Moto", top_opcion["🚗 / 🏍️ Auto/Moto"])
+    m3.metric("🚶 A Pie", top_opcion["🚶 A pie"])
 
-    # 4. Tabla interactiva configurada para detectar clic directo en celdas
+    st.markdown("---")
+    st.subheader("Top 3 Dependencias Encontradas")
+    st.info("👇 Haz clic directamente sobre la celda del **Nombre** para trazar la ruta.")
+
+    # 4. Tabla interactiva
     event = st.dataframe(
-        df_top3[["Dependencia Policial", "Dirección", "Distancia", "Tiempo Estimado"]],
+        df_top3[["Dependencia Policial", "Dirección", "Distancia", "🚗 / 🏍️ Auto/Moto", "🚶 A pie"]],
         use_container_width=True,
         on_select="rerun",
         selection_mode="single-cell",
         hide_index=True
     )
 
-    # 5. Determinar la fila activa cuando el usuario hace clic directamente en la celda
+    # 5. Obtener la fila seleccionada
     sel_id = 0
     if event and event.selection and event.selection.cells:
         celda = event.selection.cells[0]
-        # Verificar que el clic haya sido en la columna del Nombre ("Dependencia Policial")
-        if celda[1] == 0 or celda[1] == "Dependencia Policial":
-            sel_id = celda[0]
+        sel_id = celda[0]
 
-    # 6. Renderizar el Mapa según la opción seleccionada
+    # 6. Renderizar Mapa
     estacion_elegida = df_top3.iloc[sel_id]
     dest_lat, dest_lon = estacion_elegida["lat"], estacion_elegida["lon"]
     
-    gmaps_embed_url = f"https://www.google.com/maps/embed/v1/directions?key={API_KEY}&origin={origen[0]},{origen[1]}&destination={dest_lat},{dest_lon}&mode=driving"
+    # Selector de modo de transporte para el mapa embed
+    modo_mapa = st.radio("Modo de ruta en el mapa:", ["🚗 Auto / Moto", "🚶 A pie"], horizontal=True)
+    g_mode = "driving" if "Auto" in modo_mapa else "walking"
+
+    gmaps_embed_url = f"https://www.google.com/maps/embed/v1/directions?key={API_KEY}&origin={origen[0]},{origen[1]}&destination={dest_lat},{dest_lon}&mode={g_mode}"
     
     st.subheader(f"🗺️ Ruta a: {estacion_elegida['Dependencia Policial']}")
     st.components.v1.iframe(gmaps_embed_url, height=450)
