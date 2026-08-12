@@ -7,7 +7,7 @@ from streamlit_js_eval import get_geolocation
 st.set_page_config(page_title="Policía Cerca HN", page_icon="🚨", layout="centered")
 st.title("🚨 Localizador de Policía y Postas HN")
 
-# 1. Cargar API Key
+# 1. Cargar API Key desde los Secretos de Streamlit
 if "GOOGLE_MAPS_API_KEY" in st.secrets:
     API_KEY = st.secrets["GOOGLE_MAPS_API_KEY"]
     try:
@@ -38,7 +38,7 @@ with st.expander("🌐 Ver / Ajustar Coordenadas Manuales"):
 
 origen = (lat_input, lon_input)
 
-# 3. Consultar la API y almacenar resultados en session_state
+# 3. Consultar la API y guardar en memoria session_state
 if st.button("🔎 Buscar Dependencias Policiales Cercanas") or "top3_data" in st.session_state:
     
     if "top3_data" not in st.session_state or st.session_state.get("last_origen") != origen:
@@ -77,11 +77,10 @@ if st.button("🔎 Buscar Dependencias Policiales Cercanas") or "top3_data" in s
                     tiempo = element['duration']['text'] if element['status'] == 'OK' else "N/D"
                     
                     resultados_finales.append({
-                        "id": idx,
-                        "Nombre_Raw": lugar["Nombre"],
+                        "Dependencia Policial": lugar["Nombre"],
                         "Dirección": lugar["Dirección"],
                         "Distancia": f"{round(dist_km, 2)} km",
-                        "Tiempo": tiempo,
+                        "Tiempo Estimado": tiempo,
                         "dist_num": dist_km,
                         "lat": lugar["lat"],
                         "lon": lugar["lon"]
@@ -97,45 +96,27 @@ if st.button("🔎 Buscar Dependencias Policiales Cercanas") or "top3_data" in s
 
     df_top3 = st.session_state["top3_data"]
 
-    # 4. Obtener cuál fue seleccionado mediante el parámetro URL (?sel=0, ?sel=1, etc.)
-    query_params = st.query_params
-    sel_id = int(query_params.get("sel", 0))
-
-    if sel_id >= len(df_top3):
-        sel_id = 0
-
-    # 5. Formatear la columna 'Dependencia Policial' como hipervínculo interno
-    df_tabla = df_top3.copy()
-    
-    # Asignamos la URL con el parámetro 'sel' directamente en el valor del nombre
-    df_tabla["Dependencia Policial"] = [
-        f"?sel={i}" for i in range(len(df_tabla))
-    ]
-
     st.subheader("Top 3 Puntos Policiales Más Cercanos")
-    
-    # 6. Configurar la columna de nombres como enlace interactivo
-    st.dataframe(
-        df_tabla[["Dependencia Policial", "Dirección", "Distancia", "Tiempo"]],
+    st.info("💡 Haz clic sobre cualquier fila de la tabla para ver su ruta en el mapa.")
+
+    # 4. Tabla interactiva con selección directa de fila (Sin enlaces que abran pestañas)
+    event = st.dataframe(
+        df_top3[["Dependencia Policial", "Dirección", "Distancia", "Tiempo Estimado"]],
         use_container_width=True,
-        column_config={
-            "Dependencia Policial": st.column_config.LinkColumn(
-                "Dependencia Policial", 
-                help="Haz clic sobre el nombre para mostrar su ruta en el mapa",
-                display_text=r".*"  # Utiliza expresión regular para mostrar los nombres originales
-            )
-        }
+        on_select="rerun",
+        selection_mode="single-row",
+        hide_index=True
     )
 
-    # Reemplazar visualmente las etiquetas de los enlaces con los nombres reales
-    # Asignamos el nombre visible directamente
-    df_tabla["Dependencia Policial Text"] = df_top3["Nombre_Raw"]
+    # 5. Obtener el índice seleccionado de la tabla (por defecto el #0 si no hay selección)
+    filas_seleccionadas = event.selection.rows if event and event.selection else []
+    sel_id = filas_seleccionadas[0] if len(filas_seleccionadas) > 0 else 0
 
-    # Renderizar mapa de la opción seleccionada
+    # 6. Renderizar el Mapa dinámicamente en la misma página
     estacion_elegida = df_top3.iloc[sel_id]
     dest_lat, dest_lon = estacion_elegida["lat"], estacion_elegida["lon"]
     
     gmaps_embed_url = f"https://www.google.com/maps/embed/v1/directions?key={API_KEY}&origin={origen[0]},{origen[1]}&destination={dest_lat},{dest_lon}&mode=driving"
     
-    st.subheader(f"🗺️ Ruta a: {estacion_elegida['Nombre_Raw']}")
+    st.subheader(f"🗺️ Ruta a: {estacion_elegida['Dependencia Policial']}")
     st.components.v1.iframe(gmaps_embed_url, height=450)
