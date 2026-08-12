@@ -5,6 +5,16 @@ from streamlit_js_eval import get_geolocation
 
 # Configuración de página
 st.set_page_config(page_title="Policía Cerca HN", page_icon="🚨", layout="centered")
+
+# Estilo CSS para que el cursor cambie a mano interactiva sobre la tabla
+st.markdown("""
+    <style>
+    [data-testid="stDataFrame"] canvas {
+        cursor: pointer;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 st.title("🚨 Localizador de Policía y Postas HN")
 
 # 1. Cargar API Key desde los Secretos de Streamlit
@@ -38,7 +48,7 @@ with st.expander("🌐 Ver / Ajustar Coordenadas Manuales"):
 
 origen = (lat_input, lon_input)
 
-# 3. Consultar la API y guardar en memoria session_state
+# 3. Consultar la API y guardar en session_state
 if st.button("🔎 Buscar Dependencias Policiales Cercanas") or "top3_data" in st.session_state:
     
     if "top3_data" not in st.session_state or st.session_state.get("last_origen") != origen:
@@ -97,22 +107,26 @@ if st.button("🔎 Buscar Dependencias Policiales Cercanas") or "top3_data" in s
     df_top3 = st.session_state["top3_data"]
 
     st.subheader("Top 3 Puntos Policiales Más Cercanos")
-    st.info("💡 Haz clic sobre cualquier fila de la tabla para ver su ruta en el mapa.")
+    st.info("👇 Haz clic directamente sobre el **Nombre de la Dependencia Policial** para actualizar el mapa.")
 
-    # 4. Tabla interactiva con selección directa de fila (Sin enlaces que abran pestañas)
+    # 4. Tabla interactiva configurada para detectar clic directo en celdas
     event = st.dataframe(
         df_top3[["Dependencia Policial", "Dirección", "Distancia", "Tiempo Estimado"]],
         use_container_width=True,
         on_select="rerun",
-        selection_mode="single-row",
+        selection_mode="single-cell",
         hide_index=True
     )
 
-    # 5. Obtener el índice seleccionado de la tabla (por defecto el #0 si no hay selección)
-    filas_seleccionadas = event.selection.rows if event and event.selection else []
-    sel_id = filas_seleccionadas[0] if len(filas_seleccionadas) > 0 else 0
+    # 5. Determinar la fila activa cuando el usuario hace clic directamente en el Nombre
+    sel_id = 0
+    if event and event.selection and event.selection.cells:
+        celda = event.selection.cells[0]
+        # Verificar que el clic fue en la columna "Dependencia Policial" (índice 0)
+        if celda[1] == 0 or celda[1] == "Dependencia Policial":
+            sel_id = celda[0]
 
-    # 6. Renderizar el Mapa dinámicamente en la misma página
+    # 6. Renderizar el Mapa según la selección
     estacion_elegida = df_top3.iloc[sel_id]
     dest_lat, dest_lon = estacion_elegida["lat"], estacion_elegida["lon"]
     
