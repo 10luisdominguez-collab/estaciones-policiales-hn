@@ -3,117 +3,61 @@ import pandas as pd
 import googlemaps
 from streamlit_js_eval import get_geolocation
 
-# --------------------------------------------------------------------------
-# Configuración de Página e Inyección CSS de Diseño Avanzado
-# --------------------------------------------------------------------------
-st.set_page_config(
-    page_title="Emergencia Policial HN", 
-    page_icon="🚨", 
-    layout="centered"
-)
+# Configuración de página
+st.set_page_config(page_title="Policía Cerca HN", page_icon="🚨", layout="centered")
 
-# Estilos CSS personalizados
+# --------------------------------------------------------------------------
+# Inyección de CSS para forzar la "manito" (cursor: pointer) en la tabla
+# --------------------------------------------------------------------------
 st.markdown("""
     <style>
-    /* Estilo para los contenedores tipo tarjeta */
-    .police-card {
-        background-color: #ffffff;
-        border: 1px solid #e0e6ed;
-        border-radius: 12px;
-        padding: 16px;
-        margin-bottom: 12px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-        transition: all 0.2s ease-in-out;
-    }
-    
-    .police-card:hover {
-        border-color: #0066cc;
-        box-shadow: 0 6px 12px -2px rgba(0, 102, 204, 0.15);
-    }
-
-    /* Badge de tipo/distancia */
-    .badge-dist {
-        background-color: #e6f0fa;
-        color: #0052cc;
-        font-weight: 600;
-        font-size: 0.85rem;
-        padding: 4px 10px;
-        border-radius: 20px;
-        display: inline-block;
-    }
-
-    .badge-time {
-        background-color: #eef9f2;
-        color: #107c41;
-        font-weight: 600;
-        font-size: 0.85rem;
-        padding: 4px 10px;
-        border-radius: 20px;
-        display: inline-block;
-    }
-
-    /* Cambiar cursor a la manito interactiva en las tablas */
+    /* Aplica el cursor pointer a todo el área de la tabla e interactivos */
     [data-testid="stDataFrame"], 
-    [data-testid="stDataFrame"] canvas {
+    [data-testid="stDataFrame"] canvas,
+    [data-testid="stDataFrame"] iframe {
         cursor: pointer !important;
-    }
-    
-    /* Botón de llamada rápida o acción */
-    .stButton>button {
-        border-radius: 8px;
-        font-weight: 600;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# --------------------------------------------------------------------------
-# Encabezado Principal
-# --------------------------------------------------------------------------
-st.markdown("## 🚨 Asistencia Policial Honduras")
-st.caption("Ubica la Estación, Posta o Jefatura Policial más cercana en tiempo real.")
+st.title("🚨 Localizador de Policía y Postas HN")
 
-# 1. Cargar API Key desde Secrets
+# 1. Cargar API Key desde los Secretos de Streamlit
 if "GOOGLE_MAPS_API_KEY" in st.secrets:
     API_KEY = st.secrets["GOOGLE_MAPS_API_KEY"]
     try:
         gmaps = googlemaps.Client(key=API_KEY)
     except Exception as e:
-        st.error(f"Error al inicializar la conexión con Google Maps: {e}")
+        st.error(f"Error al inicializar Google Maps: {e}")
         st.stop()
 else:
-    st.error("⚠️ No se encontró la clave GOOGLE_MAPS_API_KEY en la sección Secrets de Streamlit.")
+    st.error("⚠️ No se encontró la clave GOOGLE_MAPS_API_KEY en los Secrets de Streamlit.")
     st.stop()
 
-# 2. Captura de Ubicación GPS
+# 2. Captura de GPS del dispositivo
 loc = get_geolocation()
 lat_user, lon_user = None, None
 
 if loc and 'coords' in loc:
     lat_user = loc['coords']['latitude']
     lon_user = loc['coords']['longitude']
-    st.success(f"📍 GPS Activo: Lat {round(lat_user, 4)}, Lon {round(lon_user, 4)}")
-else:
-    st.info("🌐 Obteniendo coordenadas GPS de tu dispositivo...")
+    st.success(f"📍 GPS detectado: Lat {round(lat_user, 4)}, Lon {round(lon_user, 4)}")
 
-# Opción de ajuste manual en acordeón elegante
-with st.expander("⚙️ Ajustar ubicación manualmente (Respaldo)"):
-    c1, c2 = st.columns(2)
-    with c1:
+# Coordenadas manuales de respaldo
+with st.expander("🌐 Ver / Ajustar Coordenadas Manuales"):
+    col1, col2 = st.columns(2)
+    with col1:
         lat_input = st.number_input("Latitud", value=float(lat_user) if lat_user else 14.1232, format="%.6f")
-    with c2:
+    with col2:
         lon_input = st.number_input("Longitud", value=float(lon_user) if lon_user else -87.9786, format="%.6f")
 
 origen = (lat_input, lon_input)
 
-# 3. Lógica de Consulta y Cache en session_state
-st.markdown("---")
-
-btn_buscar = st.button("🔎 Buscar Dependencias Más Cercanas", type="primary", use_container_width=True)
-
-if btn_buscar or "top3_data" in st.session_state:
+# 3. Consultar la API y guardar en session_state
+if st.button("🔎 Buscar Dependencias Policiales Cercanas") or "top3_data" in st.session_state:
     
     if "top3_data" not in st.session_state or st.session_state.get("last_origen") != origen:
-        with st.spinner("Escaneando red de postas y estaciones cercanas..."):
+        with st.spinner("Consultando Google Maps..."):
             try:
                 places_result = gmaps.places_nearby(
                     location=origen,
@@ -123,7 +67,7 @@ if btn_buscar or "top3_data" in st.session_state:
                 
                 resultados_raw = places_result.get('results', [])
                 if not resultados_raw:
-                    st.warning("No se encontraron dependencias policiales en el radio cercano.")
+                    st.warning("No se encontraron dependencias policiales cercanas.")
                     st.stop()
 
                 destinos = []
@@ -133,8 +77,8 @@ if btn_buscar or "top3_data" in st.session_state:
                     plon = place['geometry']['location']['lng']
                     destinos.append((plat, plon))
                     lista_lugares.append({
-                        "Nombre": place.get('name', 'Policía Nacional'),
-                        "Dirección": place.get('vicinity', 'Sin dirección especificada'),
+                        "Nombre": place.get('name', 'Policía'),
+                        "Dirección": place.get('vicinity', 'Sin dirección'),
                         "lat": plat,
                         "lon": plon
                     })
@@ -162,72 +106,36 @@ if btn_buscar or "top3_data" in st.session_state:
                 st.session_state["last_origen"] = origen
 
             except Exception as e:
-                st.error(f"❌ Error al consultar Google Maps: {e}")
+                st.error(f"❌ Error al consultar la API: {e}")
                 st.stop()
 
     df_top3 = st.session_state["top3_data"]
 
-    # --------------------------------------------------------------------------
-    # Tarjetas de Resumen (KPIs)
-    # --------------------------------------------------------------------------
-    st.markdown("### 🏆 Top 3 Dependencias Detectadas")
-    
-    # Mostrar la más cercana como tarjeta destacada
-    opcion_top1 = df_top3.iloc[0]
-    
-    col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
-    with col_kpi1:
-        st.metric(label="Más Cercana", value=opcion_top1["Distancia"])
-    with col_kpi2:
-        st.metric(label="Tiempo estimado", value=opcion_top1["Tiempo Estimado"])
-    with col_kpi3:
-        st.metric(label="Opciones Encontradas", value=f"{len(df_top3)} Puntos")
+    st.subheader("Top 3 Puntos Policiales Más Cercanos")
+    st.info("👇 Haz clic directamente sobre el **Nombre de la Dependencia Policial** para actualizar el mapa.")
 
-    st.markdown("---")
-    st.info("💡 **Haz clic directamente sobre la fila o celda** de la dependencia que deseas trazar en el mapa.")
-
-    # --------------------------------------------------------------------------
-    # Tabla Interactiva Mejorada
-    # --------------------------------------------------------------------------
+    # 4. Tabla interactiva configurada para detectar clic directo en celdas
     event = st.dataframe(
         df_top3[["Dependencia Policial", "Dirección", "Distancia", "Tiempo Estimado"]],
         use_container_width=True,
         on_select="rerun",
         selection_mode="single-cell",
-        hide_index=True,
-        column_config={
-            "Dependencia Policial": st.column_config.TextColumn("Dependencia Policial", width="medium"),
-            "Dirección": st.column_config.TextColumn("Dirección / Referencia", width="large"),
-            "Distancia": st.column_config.TextColumn("Distancia", width="small"),
-            "Tiempo Estimado": st.column_config.TextColumn("Tiempo", width="small"),
-        }
+        hide_index=True
     )
 
-    # Identificar la fila seleccionada
+    # 5. Determinar la fila activa cuando el usuario hace clic directamente en la celda
     sel_id = 0
     if event and event.selection and event.selection.cells:
         celda = event.selection.cells[0]
-        sel_id = celda[0]  # Obtiene el índice de la fila seleccionada
+        # Verificar que el clic haya sido en la columna del Nombre ("Dependencia Policial")
+        if celda[1] == 0 or celda[1] == "Dependencia Policial":
+            sel_id = celda[0]
 
+    # 6. Renderizar el Mapa según la opción seleccionada
     estacion_elegida = df_top3.iloc[sel_id]
-
-    # --------------------------------------------------------------------------
-    # Mapa Interactivo Integrado
-    # --------------------------------------------------------------------------
-    st.markdown(f"### 🗺️ Ruta a: **{estacion_elegida['Dependencia Policial']}**")
-    
     dest_lat, dest_lon = estacion_elegida["lat"], estacion_elegida["lon"]
+    
     gmaps_embed_url = f"https://www.google.com/maps/embed/v1/directions?key={API_KEY}&origin={origen[0]},{origen[1]}&destination={dest_lat},{dest_lon}&mode=driving"
     
-    # Contenedor para el iframe con diseño de borde
-    st.components.v1.iframe(gmaps_embed_url, height=480)
-    
-    # --------------------------------------------------------------------------
-    # Información de Emergencia Útil en Honduras
-    # --------------------------------------------------------------------------
-    with st.container():
-        st.markdown("""
-        > 📞 **Líneas Directas de Emergencia en Honduras:**  
-        > • **911:** Sistema Nacional de Emergencias  
-        > • **143:** Policía Nacional / Denuncia Ciudadana
-        """)
+    st.subheader(f"🗺️ Ruta a: {estacion_elegida['Dependencia Policial']}")
+    st.components.v1.iframe(gmaps_embed_url, height=450)
