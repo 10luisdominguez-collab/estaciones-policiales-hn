@@ -4,10 +4,10 @@ import googlemaps
 from streamlit_js_eval import get_geolocation
 
 # Configuración de página
-st.set_page_config(page_title="Policía y Postas HN", page_icon="🚨", layout="centered")
-st.title("🚨 Estaciones y Postas Policiales Más Cercanas")
+st.set_page_config(page_title="Policía Cerca HN", page_icon="🚨", layout="centered")
+st.title("🚨 Localizador de Policía")
 
-# 1. Carga de la API Key única desde los Secrets de Streamlit
+# 1. Cargar API Key desde los Secretos de Streamlit
 if "GOOGLE_MAPS_API_KEY" in st.secrets:
     API_KEY = st.secrets["GOOGLE_MAPS_API_KEY"]
     gmaps = googlemaps.Client(key=API_KEY)
@@ -15,73 +15,88 @@ else:
     st.error("⚠️ Falta la variable GOOGLE_MAPS_API_KEY en la sección Secrets de Streamlit.")
     st.stop()
 
-# 2. Dataset con Estaciones y Postas Policiales en Honduras
-UNIDADES_POLICIALES_HN = [
-    {"nombre": "Posta Policial Jesús de Otoro", "tipo": "Posta", "latitud": 14.1232, "longitud": -87.9786},
-    {"nombre": "Posta Policial Siguatepeque DPI", "tipo": "Posta", "latitud": 14.5912, "longitud": -87.8341},
-    {"nombre": "Estación Policial La Esperanza", "tipo": "Estación", "latitud": 14.3061, "longitud": -88.1748},
-    {"nombre": "Posta Policial Marcala", "tipo": "Posta", "latitud": 14.1537, "longitud": -88.0376},
-    {"nombre": "Jefatura Departamental Comayagua", "tipo": "Estación", "latitud": 14.4536, "longitud": -87.6415},
-    {"nombre": "Posta Policial Loarque (Tegucigalpa)", "tipo": "Posta", "latitud": 14.0195, "longitud": -87.2183},
-    {"nombre": "Estación UMEP-1 El Manchén", "tipo": "Estación", "latitud": 14.1189, "longitud": -87.1891},
-]
+st.info("🌐 Detectando tu ubicación por GPS...")
 
-st.info("🌐 Solicitando ubicación GPS automática de tu dispositivo...")
-
-# 3. Captura automática por GPS (Sin campos manuales)
+# 2. Captura automática por GPS del dispositivo
 loc = get_geolocation()
 
 if not loc or 'coords' not in loc:
-    st.warning("⚠️ Otorga permisos de ubicación/GPS a tu navegador para mostrar los resultados.")
+    st.warning("⚠️ Permite el acceso a la ubicación/GPS en tu navegador para realizar la búsqueda.")
     st.stop()
 
-# Coordenadas obtenidas del dispositivo
 user_lat = loc['coords']['latitude']
 user_lon = loc['coords']['longitude']
 origen = (user_lat, user_lon)
 
 st.success(f"📍 GPS Detectado: Lat {round(user_lat, 4)}, Lon {round(user_lon, 4)}")
 
-# 4. Cálculo de distancias con la API de Google Maps
-destinos = [(u["latitud"], u["longitud"]) for u in UNIDADES_POLICIALES_HN]
-
+# 3. Búsqueda activa en tiempo real mediante Google Places API
 try:
+    # Busca lugares tipo 'police' o con palabra clave 'policia' en un radio de 50 km
+    places_result = gmaps.places_nearby(
+        location=origen,
+        radius=50000,
+        type='police',
+        keyword='policia'
+    )
+    
+    resultados_raw = places_result.get('results', [])
+    
+    if not resultados_raw:
+        st.warning("No se encontraron estaciones o postas policiales registradas cerca de tu ubicación.")
+        st.stop()
+        
+    destinos = []
+    lista_lugares = []
+    
+    for place in resultados_raw:
+        plat = place['geometry']['location']['lat']
+        plon = place['geometry']['location']['lng']
+        destinos.append((plat, plon))
+        lista_lugares.append({
+            "Nombre": place.get('name', 'Policía'),
+            "Dirección": place.get('vicinity', 'Sin dirección'),
+            "lat": plat,
+            "lon": plon
+        })
+
+    # 4. Cálculo de distancias reales por carretera (Distance Matrix)
     matrix = gmaps.distance_matrix(origen, destinos, mode="driving")
     
-    resultados = []
-    for idx, unidad in enumerate(UNIDADES_POLICIALES_HN):
+    resultados_finales = []
+    for idx, lugar in enumerate(lista_lugares):
         element = matrix['rows'][0]['elements'][idx]
         if element['status'] == 'OK':
-            dist_km = element['distance']['value'] / 1000.0  # Convertir metros a km
-            tiempo = element['duration']['text']            # Tiempo estimado en auto
+            dist_km = element['distance']['value'] / 1000.0  # metros a kilómetros
+            tiempo = element['duration']['text']            # tiempo en auto
         else:
             dist_km = float('inf')
             tiempo = "Sin datos"
             
-        resultados.append({
-            "Nombre": unidad["nombre"],
-            "Tipo": unidad["tipo"],
+        resultados_finales.append({
+            "Dependencia Policial": lugar["Nombre"],
+            "Dirección / Referencia": lugar["Dirección"],
             "Distancia Real": f"{round(dist_km, 2)} km",
             "Tiempo en Auto": tiempo,
             "dist_num": dist_km,
-            "lat": unidad["latitud"],
-            "lon": unidad["longitud"]
+            "lat": lugar["lat"],
+            "lon": lugar["lon"]
         })
     
-    # 5. Filtrar las 3 más cercanas
-    df_top3 = pd.DataFrame(resultados).sort_values("dist_num").head(3)
+    # 5. Filtrar e identificar las 3 más cercanas
+    df_top3 = pd.DataFrame(resultados_finales).sort_values("dist_num").head(3)
     
-    st.subheader("Top 3 Unidades / Postas Policiales Más Cercanas")
-    st.dataframe(df_top3[["Nombre", "Tipo", "Distancia Real", "Tiempo en Auto"]], use_container_width=True)
+    st.subheader("Top 3 Puntos Policiales Más Cercanos")
+    st.dataframe(df_top3[["Dependencia Policial", "Dirección / Referencia", "Distancia Real", "Tiempo en Auto"]], use_container_width=True)
     
-    # 6. Mostrar el mapa interactivo de Google Maps
-    unidad_destino = df_top3.iloc[0]
-    dest_lat, dest_lon = unidad_destino["lat"], unidad_destino["lon"]
+    # 6. Mostrar el mapa interactivo de Google Maps hacia el punto #1
+    mas_cercana = df_top3.iloc[0]
+    dest_lat, dest_lon = mas_cercana["lat"], mas_cercana["lon"]
     
     gmaps_embed_url = f"https://www.google.com/maps/embed/v1/directions?key={API_KEY}&origin={user_lat},{user_lon}&destination={dest_lat},{dest_lon}&mode=driving"
     
-    st.subheader(f"🗺️ Ruta a la unidad más cercana: {unidad_destino['Nombre']}")
+    st.subheader(f"🗺️ Ruta a la opción más cercana: {mas_cercana['Dependencia Policial']}")
     st.components.v1.iframe(gmaps_embed_url, height=450)
 
 except Exception as e:
-    st.error(f"Error al conectar con Google Maps: {e}")
+    st.error(f"Error en la consulta con Google Maps: {e}")
