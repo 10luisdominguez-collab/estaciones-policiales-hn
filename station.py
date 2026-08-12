@@ -1,90 +1,76 @@
-import streamlit as st
-import pandas as pd
 import googlemaps
-from streamlit_js_eval import get_geolocation
 
-# 1. Configurar tu API Key de Google Cloud
-API_KEY = "AIzaSyBxOLyStOQaJtay8gMRjjeA0byQVE4q9u8"  # Reemplaza con tu clave real
+# 1. Tu API Key
+API_KEY = "AIzaSyBxOLyStOQaJtay8gMRjjeA0byQVE4q9u8"
 gmaps = googlemaps.Client(key=API_KEY)
 
-# 2. Definir las coordenadas del usuario (Ejemplo: Intibucá / Jesús de Otoro)
-lat_usuario = 14.1232
-lon_usuario = -87.9786
-origen = (lat_usuario, lon_usuario)
-
-# Radio máximo deseado en kilómetros (para filtrar manualmente)
+# 2. Coordenadas de prueba
+origen = (14.1232, -87.9786)
 DISTANCIA_MAXIMA_KM = 50 
 
-print(f"Buscando dependencias policiales desde las coordenadas: {origen}...\n")
+print("--> Iniciando script de prueba...")
 
 try:
-    # 3. Búsqueda en Places API ordenada estrictamente por CERCANÍA (rank_by='distance')
-    # NOTA: Al usar rank_by='distance', NO se debe usar el parámetro 'radius'.
-    # Es obligatorio incluir al menos 'keyword', 'type' o 'name'.
+    # Búsqueda por cercanía
+    print("--> Solicitando lugares a Google Places API...")
     resultado_places = gmaps.places_nearby(
         location=origen,
         rank_by='distance',
-        keyword='policia'  # Puedes combinar o cambiar por type='police'
+        type='police'  # Cambiamos a type='police' que es más estándar en la API
     )
 
     lugares_brutos = resultado_places.get('results', [])
+    status = resultado_places.get('status')
+    
+    print(f"--> Respuesta de API recibida. Estado: '{status}'. Lugares devueltos: {len(lugares_brutos)}")
+
+    if status != 'OK' and status != 'ZERO_RESULTS':
+        print(f"⚠️ Advertencia: La API devolvió el estado: {status}")
 
     if not lugares_brutos:
-        print("No se encontraron registros de policía cercanos.")
+        print("❌ No se encontraron estaciones de policía registradas cerca de estas coordenadas.")
     else:
-        print(f"Se encontraron {len(lugares_brutos)} resultados preliminares. Calculando distancias por carretera...\n")
-
-        # Lista donde guardaremos los lugares procesados
         lista_lugares_cercanos = []
 
-        # 4. Procesar cada lugar devuelto por Google
         for lugar in lugares_brutos:
-            nombre = lugar.get('name', 'Estación sin nombre')
+            nombre = lugar.get('name', 'Sin nombre')
             lat_destino = lugar['geometry']['location']['lat']
             lng_destino = lugar['geometry']['location']['lng']
             destino = (lat_destino, lng_destino)
             direccion = lugar.get('vicinity', 'Dirección no disponible')
 
-            # 5. Calcular la distancia real por carretera y tiempo estimado (Distance Matrix API)
+            # Calcular distancia por carretera
             try:
-                matriz = gmaps.distance_matrix(
-                    origins=origen,
-                    destinations=destino,
-                    mode='driving'
-                )
-                
-                elemento = matriz['rows'][0]['elements'][0]
+                matriz = gmaps.distance_matrix(origins=origen, destinations=destino, mode='driving')
+                elem = matriz['rows'][0]['elements'][0]
 
-                if elemento['status'] == 'OK':
-                    distancia_texto = elemento['distance']['text']     # Ej: "12.5 km"
-                    distancia_metros = elemento['distance']['value']    # Ej: 12500
-                    duracion_texto = elemento['duration']['text']       # Ej: "18 mins"
+                if elem['status'] == 'OK':
+                    dist_m = elem['distance']['value']
+                    dist_km = dist_m / 1000.0
                     
-                    distancia_km = distancia_metros / 1000.0
-
-                    # Filtrar si supera la distancia máxima que deseamos mostrar
-                    if distancia_km <= DISTANCIA_MAXIMA_KM:
+                    if dist_km <= DISTANCIA_MAXIMA_KM:
                         lista_lugares_cercanos.append({
                             'nombre': nombre,
                             'direccion': direccion,
-                            'distancia_km': distancia_km,
-                            'distancia_texto': distancia_texto,
-                            'duracion_texto': duracion_texto,
-                            'coordenadas': destino
+                            'distancia_texto': elem['distance']['text'],
+                            'duracion_texto': elem['duration']['text'],
+                            'distancia_km': dist_km
                         })
-            except Exception as err_matrix:
-                print(f"Error al calcular matriz de distancia para {nombre}: {err_matrix}")
+            except Exception as e_mat:
+                print(f"Error en Distance Matrix: {e_mat}")
 
-        # 6. Mostrar los resultados ordenados correctamente al usuario
-        print(f"=== ESTACIONES Y POSTAS POLICIALES MÁS CERCANAS (Máx. {DISTANCIA_MAXIMA_KM} km) ===\n")
-        
-        for idx, item in enumerate(lista_lugares_cercanos, start=1):
-            print(f"{idx}. {item['nombre']}")
-            print(f"   📍 Dirección: {item['direccion']}")
-            print(f"   🚗 Distancia por carretera: {item['distancia_texto']}")
-            print(f"   ⏱️ Tiempo estimado: {item['duracion_texto']}")
-            print(f"   🗺️ Coordenadas: {item['coordenadas']}")
-            print("-" * 50)
+        # Mostrar resultados
+        print(f"\n=== RESULTADOS FILTRADOS (< {DISTANCIA_MAXIMA_KM} KM) ===")
+        print(f"Total en rango: {len(lista_lugares_cercanos)}\n")
+
+        if len(lista_lugares_cercanos) == 0:
+            print(f"⚠️ Se encontraron {len(lugares_brutos)} lugares, pero ninguno está a menos de {DISTANCIA_MAXIMA_KM} km por carretera.")
+        else:
+            for idx, item in enumerate(lista_lugares_cercanos, start=1):
+                print(f"{idx}. {item['nombre']}")
+                print(f"   📍 {item['direccion']}")
+                print(f"   🚗 Distancia: {item['distancia_texto']} ({item['duracion_texto']})")
+                print("-" * 40)
 
 except Exception as e:
-    print(f"❌ Error durante la llamada a la API de Google: {e}")
+    print(f"❌ Error crítico al ejecutar el script: {e}")
