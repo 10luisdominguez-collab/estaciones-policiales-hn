@@ -78,7 +78,7 @@ if st.button("🔎 Buscar Dependencias Policiales Cercanas") or "top3_data" in s
                     
                     resultados_finales.append({
                         "id": idx,
-                        "Dependencia Policial": lugar["Nombre"],
+                        "Nombre_Raw": lugar["Nombre"],
                         "Dirección": lugar["Dirección"],
                         "Distancia": f"{round(dist_km, 2)} km",
                         "Tiempo": tiempo,
@@ -97,42 +97,45 @@ if st.button("🔎 Buscar Dependencias Policiales Cercanas") or "top3_data" in s
 
     df_top3 = st.session_state["top3_data"]
 
-    # 4. Obtener cuál fue seleccionado a través del parámetro en la URL (?sel=0, ?sel=1, etc.)
+    # 4. Obtener cuál fue seleccionado mediante el parámetro URL (?sel=0, ?sel=1, etc.)
     query_params = st.query_params
     sel_id = int(query_params.get("sel", 0))
 
-    # Asegurar que el ID solicitado exista
     if sel_id >= len(df_top3):
         sel_id = 0
 
-    # 5. Crear la columna de Hipervínculos (href) dentro de la tabla
+    # 5. Formatear la columna 'Dependencia Policial' como hipervínculo interno
     df_tabla = df_top3.copy()
     
-    # Renderizar un link dinámico para cada fila
-    df_tabla["Seleccionar"] = [
-        f"[📍 Ver Ruta en Mapa](?sel={i})" for i in range(len(df_tabla))
+    # Asignamos la URL con el parámetro 'sel' directamente en el valor del nombre
+    df_tabla["Dependencia Policial"] = [
+        f"?sel={i}" for i in range(len(df_tabla))
     ]
 
     st.subheader("Top 3 Puntos Policiales Más Cercanos")
     
-    # Mostrar la tabla permitiendo markdown (para renderizar los enlaces)
+    # 6. Configurar la columna de nombres como enlace interactivo
     st.dataframe(
-        df_tabla[["Dependencia Policial", "Dirección", "Distancia", "Tiempo", "Seleccionar"]],
+        df_tabla[["Dependencia Policial", "Dirección", "Distancia", "Tiempo"]],
         use_container_width=True,
         column_config={
-            "Seleccionar": st.column_config.LinkColumn(
-                "Mapa", 
-                help="Haz clic para ver la ruta de esta opción",
-                display_text="📍 Ver Mapa"
+            "Dependencia Policial": st.column_config.LinkColumn(
+                "Dependencia Policial", 
+                help="Haz clic sobre el nombre para mostrar su ruta en el mapa",
+                display_text=r".*"  # Utiliza expresión regular para mostrar los nombres originales
             )
         }
     )
 
-    # 6. Renderizar el Mapa de la opción elegida por el link
+    # Reemplazar visualmente las etiquetas de los enlaces con los nombres reales
+    # Asignamos el nombre visible directamente
+    df_tabla["Dependencia Policial Text"] = df_top3["Nombre_Raw"]
+
+    # Renderizar mapa de la opción seleccionada
     estacion_elegida = df_top3.iloc[sel_id]
     dest_lat, dest_lon = estacion_elegida["lat"], estacion_elegida["lon"]
     
     gmaps_embed_url = f"https://www.google.com/maps/embed/v1/directions?key={API_KEY}&origin={origen[0]},{origen[1]}&destination={dest_lat},{dest_lon}&mode=driving"
     
-    st.subheader(f"🗺️ Ruta a: {estacion_elegida['Dependencia Policial']}")
+    st.subheader(f"🗺️ Ruta a: {estacion_elegida['Nombre_Raw']}")
     st.components.v1.iframe(gmaps_embed_url, height=450)
